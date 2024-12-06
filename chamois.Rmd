@@ -1,0 +1,258 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: inline
+---
+
+# Unrelated Questions, But Interesting
+
+Clears the local variables and imports the data
+
+```{r}
+rm(list = ls())
+library(ggplot2)
+library(glmmTMB)
+library(MASS)
+dat = read.table("Data/exam2022_part2-1.txt", header = T)
+dat$horndif <- dat$hornR - dat$hornL
+dat$agegroup <- floor(dat$age/3)
+```
+
+## Horn Asymmetry vs. Age (by Sex)
+
+Plots horn asymmetry vs age, coloured according to sex.
+
+```{r}
+plot(dat$horndif, dat$age,
+     col = c("red", "blue")[(dat$sex == "M") + 1],
+     main = "Horn Asymmetry vs. Age",
+     xlab = "Horn Difference (mm)", ylab = "Age (years)")
+legend("topright", c("Female", "Male"), pch = 1, col = c("red", "blue"))
+
+summary(lm(dat$horndif ~ dat$age))
+```
+
+```{r}
+hist(dat$horndif, breaks = 30, xlab = "Horn Difference (mm)", ylab = "Frequency",
+    main = "Histogram of Horn Asymmetry")
+summary(dat$horndif)
+```
+
+```{r}
+# ggplot(dat, aes((hornR - hornL), age)) +
+#     geom_violin() +
+#     geom_vline(xintercept = 0) +
+#     geom_point(aes(colour = sex)) +
+#     scale_colour_manual(values = (c(F = "violetred", M = "navy"))) +
+#     labs(x = "Difference in Horn Lengths (mm)",
+#          y = "Age (years)",
+#          title = "Horn Asymmetry by Age")
+```
+
+## Body Mass Over Time (by Sex)
+
+Plots body mass (kg) over time.
+
+```{r}
+plot(dat$daynr, dat$mass,
+     col = c(rgb(1, 0, 0, 0.1), rgb(0, 0, 1, 0.1))[(dat$sex == "M") + 1],
+     main = "Body Mass Over Time", xlab = "Day", ylab = "Body Mass (kg)")
+legend("topright", c("Female", "Male"),
+       lty = 1, lwd = 2, col = c("red", "blue"))
+
+xp <- min(dat$daynr):max(dat$daynr)
+m2 <- lm(dat$mass[dat$sex == "M"] ~ dat$daynr[dat$sex == "M"])
+m3 <- lm(dat$mass[dat$sex == "F"] ~ dat$daynr[dat$sex == "F"])
+lines(xp, m2$coef[1] + m2$coef[2]*xp, col = "blue", lwd = 2)
+lines(xp, m3$coef[1] + m3$coef[2]*xp, col = "red", lwd = 2)
+```
+
+```{r}
+# A violin plot which, while cool, doesn't accurately represent what I thought it represented originally
+# ggplot(dat, aes(daynr, mass, colour = sex)) +
+#     scale_colour_manual(values = c(F = rgb(1, 0, 0, 0.1), M = rgb(0, 0, 1, 0.1))) +
+#     geom_point() +
+#     geom_smooth(formula = y ~ x, method = "lm")
+```
+
+Plots the histograms of the residuals. They appear to be approximately normal but slightly left-skewed.
+
+```{r}
+op <- par(mfrow = c(1, 2))
+hist(m2$residuals, breaks = 30, main = "Male Mass vs. Time Residuals")
+hist(m3$residuals, breaks = 30, main = "Female Mass vs. Time Residuals")
+par(op)
+```
+
+## Total Hunted Each Year (by Sex)
+
+Creates a barplot of hunting over all years.
+
+```{r}
+ggplot(dat, aes(as.factor(yr), fill = sex)) + 
+    geom_bar(position = "stack") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+    scale_fill_manual(values = c(F = "violetred", M = "navy")) + 
+    labs(x = "Year", y = "Hunted Individuals", title = "Number of Goats Hunted Per Year, by Sex")
+```
+
+# Hunted Horn Length Over Time
+
+## Simple Plot
+
+```{r}
+plot(dat$yr, dat$hornL, main = "Horn Length Over Time", xlab = "Year", ylab = "Horn Length (mm)")
+```
+
+## Boxplots for Each Year
+
+Creates a chart of boxplots of horn length for every year.
+
+```{r}
+hornmeds <- tapply(dat$hornL, dat$yr, median)  # Horn length median/year
+agemeds <- tapply(dat$age, dat$yr, median)  # Age median/year
+
+plot(as.factor(dat$yr), dat$hornL, las = 1,
+     xlab = "Year", ylab = "Horn Length (mm)",
+     main = "Horn Length Over Time")
+lines(as.factor(names(hornmeds)), unname(hornmeds),
+      col = "red", lwd = 2)
+```
+
+## Median Length Over Time, Scaled/Coloured by Age
+
+Horn length medians over time, with points scaled according to median age and coloured according to number of data points for that year.
+
+```{r}
+# Creates a colour palette scaling from black to red
+gradient <- colorRampPalette(c("black", "red"))(max(unname(table(dat$yr))))
+
+scalef <- 3  # Scale-down factor for ages -> point size
+
+# A function used to make the colouring curve non-linear to my liking (I moved the threshold to start turning red lower than it was originally)
+colfunc <- function(x) (max(unname(table(dat$yr)))/(1 + exp(-0.045*(x - 90))))
+
+# Plots years (names of horn medians) against medians (values of horn medians)
+plot(as.numeric(names(hornmeds)), unname(hornmeds), pch = 16, cex = agemeds/scalef,
+     col = gradient[colfunc(unname(table(dat$yr)))],
+     xlab = "Year Hunted", ylab = "Horn Length (mm)",
+     main = "Median Horn Length Over Time",
+     ylim = c(150, 240))
+
+# Labels the points with the number of data points for that year
+text(as.numeric(names(hornmeds)), unname(hornmeds), unname(table(dat$yr)),
+     pos = 3, cex = 0.4)
+
+# Draws connecting line
+lines(as.numeric(names(hornmeds)), unname(hornmeds), col = rgb(0, 0, 0, 0.2), lwd = 2)
+
+# Adds light grid behind
+grid(lty = 1, col = rgb(0, 0, 0, 0.1))
+
+# Legend to show point scaling reflecting median age
+legend("topleft", legend = c(min(agemeds), max(agemeds)), pch = 16,
+       pt.cex = c(min(agemeds)/scalef, max(agemeds)/scalef),
+       title = "Median Age (years)")
+
+# Linear model and residual histogram
+m4 <- lm(hornL ~ yr * age, data = dat)
+hist(m4$res, breaks = 20,
+     main = "Horn Length Residuals", xlab = "Horn Length Residual (mm)")
+summary(m4)
+```
+
+```{r}
+m4.1 <- lm(log(hornL) ~ yr * age, data = dat)
+hist(m4.1$res, breaks = 20,
+     main = "Horn Length Residuals", xlab = "Horn Length Residual (mm)")
+summary(m4.1)
+```
+
+## Age Grouping (Explaining Variance)
+
+```{r}
+plot(dat$yr, dat$hornL, pch = 15, cex = 1.5,
+     col = c("red","purple","navy","cyan","limegreen","orange","black")[1 + dat$agegroup],
+     main = "Horn Length Over Time, by Age Group",
+     xlab = "Year", ylab = "Horn Length (mm)")
+legend("bottomleft", c("0-2", "3-5", "6-8", "9-11", "12-14", "15-17", "18+"),
+       pch = 15, col = c("red","purple","navy","cyan","limegreen","orange","black"),
+       title = "Age Group")
+
+m <- glmmTMB(hornL ~ yr + (1|agegroup), data = dat)
+summary(m)
+```
+
+It appears there is a slight decline in horn length over the time, -0.37mm/year, and age grouping accounts for 31% of the variation in the data.
+
+# Other Horn Length
+
+## Horn Length
+
+```{r}
+par(mfrow = c(1, 2))
+hist(dat$hornL, main = "Histogram of Left Horn Lengths", xlab = "Horn Length (mm)")
+hist(dat$hornR, main = "Histogram of Right Horn Lengths", xlab = "Horn Length (mm)")
+par(mfrow = c(1, 1))
+print(c(mean(dat$hornL), sd(dat$hornL)))
+print(c(mean(dat$hornR), sd(dat$hornR)))
+```
+
+## Horn Length Across Sexes
+
+```{r}
+# A simple boxplot of horn length for each sex
+boxplot(hornL ~ as.factor(sex), data = dat, boxwex = 0.3,
+        main = "Horn Length vs. Sex", xlab = "Sex", ylab = "Length of Horn (mm)")
+
+length_by_sex <- lm(hornL ~ as.factor(sex), data = dat)
+# The following *would* be the anova analysis, if the data were normally distributed
+# summary(length_by_sex)
+# anova(length_by_sex)
+
+# The residuals are also split according to sex, to be analyzed individually
+group_residuals <- split(residuals(length_by_sex), dat$sex)
+
+# The following histograms shows the residuals are non-normal
+par(mfrow = c(1, 2))
+hist(unlist(group_residuals[1], use.names = F),
+     main = "F Residuals",
+     xlab = "Residual Horn Length (mm)")
+hist(unlist(group_residuals[2], use.names = F),
+     main = "M Residuals",
+     xlab = "Residual Horn Length (mm)")
+par(mfrow = c(1, 1))
+
+# The results of the following Shapiro-Wilkes test confirm they are non-normal
+lapply(group_residuals, shapiro.test)
+
+# Then a Kruskal test is used instead, as it is appropriate for non-normal residuals
+kruskal.test(hornL ~ as.factor(sex), data = dat)
+```
+
+The ANOVA report shows the mean horn length is 169.0 for females and 191.9 for males. However the histograms of the residuals reveal non-normality, meaning an assumption of the ANOVA analysis is untrustworthy. Instead, we move to the Kruskal-Wallis test, which gives a result of chi-squared = 443.71 with a p-value \< 2.2e-16. The epsilon-squared is (443.71 - 2 + 1)/(4394 - 2) = 0.101, so we can say approximately 10.1% of the variance can be attributed to sex.
+
+## Horn Length vs. Population Density
+
+```{r}
+# This is the same analysis as what was done for the sexes
+boxplot(hornL ~ as.factor(density), data = dat, boxwex = 0.3)
+density_anova <- lm(hornL ~ as.factor(density), data = dat)
+summary(density_anova)
+anova(density_anova)
+group_residuals <- split(residuals(density_anova), dat$density)
+par(mfrow = c(1, 2))
+hist(unlist(group_residuals[1], use.names = F),
+     main = "High Residuals",
+     xlab = "Residual Horn Length (mm)")
+hist(unlist(group_residuals[2], use.names = F),
+     main = "Low Residuals",
+     xlab = "Residual Horn Length (mm)")
+par(mfrow = c(1, 1))
+print("-----------------")
+kruskal.test(hornL ~ as.factor(density), data = dat)
+```
+
+The histograms for population density show the same results: the residuals are not normally distributed within groups. Thus the analysis is also untrustworthy here. Here, the Kruskal-Wallis test gives a chi-squared of 10.952 with a p-value of 0.0009351. The epsilon-squared value here is (10.952 - 2 + 1)/(4394 - 2) = 0.00227. Thus we can say approximately 0.2% of the horn length variation can be attributed to population density.
