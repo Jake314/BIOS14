@@ -1,0 +1,270 @@
+---
+---
+---
+
+# Lund University BIOS14 Final Exam
+
+## Jacob Daigle \| 2025-01-15
+
+For this exam, we are given a large dataset concerning a field monitoring project studying two species of European riverine damselfly, *Calopteryx splendens*, and *Calopteryx virgo*.
+
+The questions I am interested in attempting to explore using this dataset are as follows:
+
+1.  Forewing patch length and width (and thus area) are supposedly a target of sexual selection. Is this reflected in this dataset? How does an increase in patch area affect the probability an individual is to have copulated?
+2.  What is the relationship between body size and wing size, taking into account differences in sexes and species?
+3.  How have the different body segment lengths changed over time?
+
+```{r}
+rm(list = ls())
+library(dplyr)
+
+male_CS <- read.csv("../Data/male_CS.csv")
+male_CV <- read.csv("../Data/male_CV.csv")
+female_CS <- read.csv("../Data/female_CS.csv")
+female_CV <- read.csv("../Data/female_CV.csv")
+dat <- bind_rows(male_CS, male_CV, female_CS, female_CV)
+dat[["fpa"]] <- dat[["fpl"]] * dat[["fpw"]]
+
+logit = function(x) log(x/(1 - x))
+invlogit = function(x) 1/(1 + exp(-x))
+```
+
+# Forewing Patch Area and Copulation Status
+
+An increase of one standard deviation of forewing patch area is associated with a *drop* in likelihood to copulate by 0.9%. The coefficient of discrimination calculated to be 0.0022.
+
+```{r}
+plot(dat$fpa, dat$cop, main = "Copulation Likelihood vs. Forewing Patch Area",
+     xlab = "Forewing Patch Area (mm^2)", ylab = "Copulation Likelihood")
+
+# Logistic regression, binary response variable
+cop_by_fpa <- glm(formula = cop ~ fpa, family = binomial(link = "logit"), data = dat)
+xvals <- seq(min(dat$fpa, na.rm = T), max(dat$fpa, na.rm = T), 0.1)
+coefs <- cop_by_fpa$coefficients
+yvals <- coefs[1] + coefs[2]*xvals
+
+lines(xvals, invlogit(yvals))
+
+# Calculates difference between mean and mean + 1SD
+print(
+    invlogit(
+        coefs[1] + coefs[2] * (mean(dat$fpa, na.rm = T) + sd(dat$fpa, na.rm = T))
+    ) - invlogit(
+        coefs[1] + coefs[2] * (mean(dat$fpa, na.rm = T))
+    )
+)
+# Calculates coefficient of discrimination
+print(
+    mean(invlogit(yvals)[which(dat$cop == 1)], na.rm = T)
+         - mean(invlogit(yvals)[which(dat$cop == 0)], na.rm = T)
+    )
+```
+
+# Forewing Length and Body Size
+
+The variance in forewing is partitioned as follows:
+
+|                                |                              |
+|--------------------------------|------------------------------|
+| Parameter                      | Amount of Variance Explained |
+| Total body length              | 5.2%                         |
+| Species                        | 3.9%                         |
+| Sex                            | 45.5%                        |
+| Interaction of sex and species | 0.7%                         |
+| Residuals (unexplained)        | 44.6%                        |
+
+We expect wing length to relate allometrically to total body length, so $winglength = a\times bodylength^b$. We can take the log of both sides to be able to fit a linear regression to the data, so $\text{log}(winglength) = \text{log}(a) + b\times\text{log}(bodylength)$. An ANCOVA analysis is performed twice to see the difference sex and species each have on the relationship.
+
+We find that the difference between species is not at all like the difference between sexes. The allometric slope is $0.68\pm 0.0035\frac{\text{log mm wing length}}{\text{log mm body length}}$ for females, so a 10% increase in total body length is associated with a 6.8% increase in forewing length, while in males a 10% increase in body length is associated with a 6.1% increase in forewing length - not much different. However in *C. Virgo*, a 10% body length increase is associated with a 4.1% increase in forewing length ($0.40803 \pm 0.08236 \frac{\text{log mm wing length}}{\text{log mm body length}}$), while a 10% body length increase in *C. Splendens* is associated with a 1.2% **decrease** in forewing length.
+
+As seen in the graph, though, there does appear to be three subgroups of *C. Splendens*. I'm not sure exactly what the subgroups are, but I decided to redo the ANOVA for this species assuming three differently sized subgroups, which I've labelled "small", "medium", and "large", though of course all are very close in size.
+
+```{r}
+# By Sex ----------------------------------
+# Log-log is taken so relationship is linear
+fwl_by_tbl_sex <- lm(log10(fwl) ~ log10(tbl) * as.factor(sex), data = dat)
+coefs <- summary(fwl_by_tbl_sex)$coef
+
+# X values used to graph regression lines within data later
+xvals1 <- seq(
+    min(log10(dat$tbl[dat$sex == "Female"]), na.rm = T),
+    max(log10(dat$tbl[dat$sex == "Female"]), na.rm = T),
+    0.1)
+xvals2 <- seq(
+    min(log10(dat$tbl[dat$sex == "Male"]), na.rm = T),
+    max(log10(dat$tbl[dat$sex == "Male"]), na.rm = T),
+    0.1)
+
+plot(log10(dat$tbl), log10(dat$fwl),
+     main = "Wing Length vs. Total Body Length",
+     xlab = "Total Body Length (mm)", ylab = "Wing Length (mm)",
+     pch = 16, cex = 1, axes = F,
+     col = c(rgb(1, 0, 0, 0.1), rgb(0, 0, 1, 0.1))[(dat$sex == "Male") + 1])
+# Axes are drawn manually to get 10^(log value) instead of (log value)
+axis(1, at = seq(1.55, 1.75, 0.05),
+     labels = parse(text = paste0("10^", seq(1.55, 1.75, 0.05))))
+axis(2, at = seq(1.3, 1.6, 0.05), las = 1,
+     labels = parse(text = paste0("10^", seq(1.3, 1.6, 0.05))))
+
+# Regression lines (linear)
+lines(xvals1, coefs[1, 1] + coefs[2, 1] * xvals1,
+      col = "red3", lwd = 3)
+lines(xvals2, coefs[1, 1] + coefs[3, 1] + (coefs[2, 1] + coefs[4, 1]) * xvals2,
+      col = "blue3", lwd = 3)
+
+legend("bottomright",
+       c("Female", "Male"),
+       col = c("red3", "blue3"),
+       lwd = 3)
+
+# By Species -------------------------------
+
+fwl_by_tbl <- lm(log10(fwl) ~ log10(tbl) * as.factor(sp), data = dat)
+coefs <- summary(fwl_by_tbl)$coef
+
+xvals1 <- seq(
+    min(log10(dat$tbl[dat$sp == "CS"]), na.rm = T),
+    max(log10(dat$tbl[dat$sp == "CS"]), na.rm = T),
+    0.1)
+xvals2 <- seq(
+    min(log10(dat$tbl[dat$sp == "CV"]), na.rm = T),
+    max(log10(dat$tbl[dat$sp == "CV"]), na.rm = T),
+    0.1)
+
+plot(log10(dat$tbl), log10(dat$fwl),
+     main = "Wing Length vs. Body Length",
+     xlab = "Total Body Length (mm)", ylab = "Wing Length (mm)",
+     pch = 16, cex = 1, axes = F,
+     col = c(rgb(255, 150, 0, 20, maxColorValue = 255),
+             rgb(0, 255, 0, 20, maxColorValue = 255)
+             )[(dat$sp == "CV") + 1])
+axis(1, at = seq(1.55, 1.75, 0.05),
+     labels = parse(text = paste0("10^", seq(1.55, 1.75, 0.05))))
+axis(2, at = seq(1.3, 1.6, 0.05), las = 1,
+     labels = parse(text = paste0("10^", seq(1.3, 1.6, 0.05))))
+
+lines(xvals1, coefs[1, 1] + coefs[2, 1] * xvals1,
+      col = "orange3", lwd = 3)
+lines(xvals2, coefs[1, 1] + coefs[3, 1] + (coefs[2, 1] + coefs[4, 1]) * xvals2,
+      col = "green3", lwd = 3)
+
+legend("bottomright",
+       c("C. Splendens", "C. Virgo"),
+       col = c("orange3", "green3"),
+       lwd = 3)
+
+summary(fwl_by_tbl_sex)
+summary(fwl_by_tbl)
+anova(fwl_by_tbl_sex)
+anova(fwl_by_tbl)
+```
+
+If we separate *C. Splendens* into three subgroups, we find that for a 10% increase in body length, there is a 3.9%, 2.3%, and 1.9% increase in body length for "small", "medium", and "large" flies respectively. The body length, size category, interaction of body length and size category, and residuals account for 0.3%, 86.0%, 0.1%, and 13.6% of the variance respectively.
+
+```{r}
+# Subgrouping -------------------------------
+subdat <- dat[which(dat$sp == "CS"),]  # Data only of C. Splendens
+subdat$size <- factor(cut(
+    log10(subdat$fwl),
+    c(-Inf, 1.45, 1.5, Inf),
+    labels = c("small", "medium", "large")
+))
+
+fwl_by_tbl_sub <- lm(log10(fwl) ~ log10(tbl) * size, data = subdat)
+coefs <- summary(fwl_by_tbl_sub)$coef
+
+# X values for drawing regression lines within data
+xvals1 <- seq(
+    min(log10(subdat$tbl[subdat$size == "small"]), na.rm = T),
+    max(log10(subdat$tbl[subdat$size == "small"]), na.rm = T),
+    0.01)
+
+xvals2 <- seq(
+    min(log10(subdat$tbl[subdat$size == "medium"]), na.rm = T),
+    max(log10(subdat$tbl[subdat$size == "medium"]), na.rm = T),
+    0.01)
+
+xvals3 <- seq(
+    min(log10(subdat$tbl[subdat$size == "large"]), na.rm = T),
+    max(log10(subdat$tbl[subdat$size == "large"]), na.rm = T),
+    0.01)
+
+plot(log10(subdat$tbl), log10(subdat$fwl),
+     main = "Wing Length vs. Body Length in C. Splendens",
+     xlab = "Total Body Length (mm)", ylab = "Wing Length (mm)",
+     pch = 16, cex = 1, axes = F,
+     col = c(
+         rgb(1, 0, 0, 0.05),
+         rgb(0, 1, 0, 0.05),
+         rgb(0, 0, 1, 0.05)
+     )[subdat$size]
+)
+box()  # Draws box around the plot
+
+# Axes with 10^(log val) instead of just (log val)
+axis(1, at = seq(1.58, 1.7, 0.02),
+     labels = parse(text = paste0("10^", seq(1.58, 1.7, 0.02))))
+axis(2, at = seq(1.3, 1.6, 0.05), las = 1,
+     labels = parse(text = paste0("10^", seq(1.3, 1.6, 0.05))))
+
+# Regression lines
+lines(xvals1,
+      coefs[1,1] + coefs[2,1] * xvals1,
+      col = "red", lwd = 2)  # Small
+lines(xvals2,
+      coefs[1,1] + coefs[3,1] + (coefs[2,1] + coefs[5,1]) * xvals2,
+      col = "green", lwd = 2)  # Medium
+lines(xvals3,
+      coefs[1,1] + coefs[4,1] + (coefs[2,1] + coefs[6,1]) * xvals3,
+      col = "blue", lwd = 2)  # Large
+
+legend("bottomright",
+       c("Small", "Medium", "Large"),
+       col = c("red", "green", "blue"),
+       lwd = 2)
+
+summary(fwl_by_tbl_sub)
+anova(fwl_by_tbl_sub)
+```
+
+# Segment Lengths Over Time
+
+The histograms below show a slight decrease in body length over time, $-0.46\frac{mm}{yr}(\pm 0.023)$, but a large increase in thorax length over time, $+1.2\frac{mm}{yr}(\pm 0.010)$. We can also see that the abdomens show a similar decrease over time, $-0.23\frac{mm}{yr}(\pm 0.020)$, which means the heads must be shrinking enormously! The second chart shows the median body lengths over time along with the sum of the median thorax and abdomen lengths.
+
+```{r}
+plot(as.factor(dat$year), dat$tbl,
+     xlab = "Year", ylab = "Total Body Length (mm)",
+     main = "Total Body Length Over Time")
+plot(as.factor(dat$year), dat$thorl,
+     xlab = "Year", ylab = "Thorax Length (mm)",
+     main = "Thorax Length Over Time")
+plot(as.factor(dat$year), dat$abl,
+     xlab = "Year", ylab = "Abdomen Length (mm)",
+     main = "Abdomen Length Over Time")
+plot(as.factor(dat$year), dat$tbl - (dat$abl + dat$thorl),
+     xlab = "Year", ylab = "Difference Length (mm)",
+     main = "'Head' Length Over Time")
+
+summary(lm(tbl ~ as.numeric(year), data = dat))$coef
+summary(lm(thorl ~ as.numeric(year), data = dat))$coef
+summary(lm(abl ~ as.numeric(year), data = dat))$coef
+```
+
+```{r}
+# Calculates the median body, abdomen, and thorax lengths for each year
+tbl_med <- tapply(dat$tbl, dat$year, median)
+abl_med <- tapply(dat$abl, dat$year, median)
+thorl_med <- tapply(dat$thorl, dat$year, median)
+
+# Plots the body lengths along with thorax + abdomen
+plot(as.numeric(names(tbl_med)), unname(tbl_med), type = "l",
+     ylim = c(38, 47), col = "red",
+     xlab = "Year", ylab = "Length (mm)",
+     main = "Median Total Body Length and Thorax + Abdomen Over Time")
+lines(as.numeric(names(abl_med)), unname(abl_med) + unname(thorl_med),
+      col = "blue")
+legend("bottomright",
+       c("Median Total Body Length",
+         "Median Thorax + Median Abdomen Length"),
+       col = c("red", "blue"), lwd = 2, cex = 0.9)
+```
